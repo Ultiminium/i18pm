@@ -1,0 +1,474 @@
+<title>Neon Drift</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Monoton&family=Chakra+Petch:wght@500;700&display=swap">
+<style>
+  /* Layout: one full-bleed canvas arena; DOM overlays float above it for menu / HUD / game over.
+     Deliberately single-theme: a night-sky arcade screen in both light and dark host themes. */
+  :root {
+    --void: #08051a;
+    --ink: #f2fbff;
+    --dim: rgba(242, 251, 255, 0.7);
+    --pink: #ff3399;
+    --cyan: #33f2ff;
+    --gold: #ffd94d;
+    --display: "Monoton", "Chakra Petch", system-ui, sans-serif;
+    --ui: "Chakra Petch", ui-rounded, system-ui, -apple-system, sans-serif;
+    color-scheme: dark;
+  }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  body {
+    background: var(--void);
+    color: var(--ink);
+    font-family: var(--ui);
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #arena {
+    position: relative;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    touch-action: none;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    text-align: center;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 24px;
+    background: rgba(4, 2, 14, 0.45);
+    animation: fade 0.25s ease-out;
+  }
+  @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+  .title {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(54px, 19vw, 96px);
+    line-height: 1;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .title span { display: block; }
+  .glow-pink { color: #ffe6f2; text-shadow: 0 0 6px var(--pink), 0 0 22px var(--pink); }
+  .glow-cyan { color: #e6fdff; text-shadow: 0 0 6px var(--cyan), 0 0 22px var(--cyan); }
+  .tagline {
+    margin: 0;
+    max-width: 30ch;
+    font-size: 17px;
+    line-height: 1.5;
+    color: var(--dim);
+  }
+  .best {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    color: var(--gold);
+    font-variant-numeric: tabular-nums;
+  }
+  .new-best { font-size: 22px; text-shadow: 0 0 12px var(--gold); }
+  .play {
+    font-family: var(--ui);
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: 0.25em;
+    color: var(--ink);
+    background: rgba(255, 51, 153, 0.22);
+    border: 2.5px solid var(--pink);
+    border-radius: 999px;
+    padding: 16px 48px 16px 54px;
+    box-shadow: 0 0 18px rgba(255, 51, 153, 0.6);
+    cursor: pointer;
+  }
+  .play:active { transform: scale(0.96); }
+  .play:focus-visible { outline: 3px solid var(--cyan); outline-offset: 4px; }
+  .final {
+    font-family: var(--ui);
+    font-weight: 700;
+    font-size: clamp(72px, 26vw, 120px);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .crashed { font-family: var(--display); font-size: clamp(40px, 13vw, 64px); margin: 0; }
+  #hud {
+    position: absolute;
+    top: 10px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-weight: 700;
+    font-size: 46px;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+  #mute {
+    position: absolute;
+    top: 10px;
+    right: max(12px, env(safe-area-inset-right, 0px));
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(51, 242, 255, 0.5);
+    background: rgba(8, 5, 26, 0.5);
+    color: var(--cyan);
+    font: 700 12px var(--ui);
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    z-index: 2;
+  }
+  .hint { font-size: 13px; color: var(--dim); letter-spacing: 0.08em; margin: 0; }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { .overlay { animation: none; } }
+</style>
+
+<div id="arena">
+  <canvas id="c"></canvas>
+  <div id="hud" class="glow-cyan" hidden>0</div>
+  <button id="mute" type="button" aria-label="Toggle sound">SFX</button>
+
+  <div id="menu" class="overlay">
+    <h1 class="title"><span class="glow-pink">Neon</span><span class="glow-cyan">Drift</span></h1>
+    <p class="tagline">Drag anywhere to steer. Dodge the pink shards. Grab the gold orbs for +10.</p>
+    <div id="menuBest" class="best" hidden></div>
+    <button id="playBtn" class="play" type="button">PLAY</button>
+    <p class="hint">Tip: in Safari, Share → Add to Home Screen</p>
+  </div>
+
+  <div id="over" class="overlay" hidden>
+    <h2 class="crashed glow-pink">Crashed</h2>
+    <div id="finalScore" class="final glow-cyan">0</div>
+    <div id="overBest" class="best"></div>
+    <button id="againBtn" class="play" type="button">AGAIN</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const PINK = "#ff3399", CYAN = "#33f2ff", GOLD = "#ffd94d";
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const arena = document.getElementById("arena");
+  const hud = document.getElementById("hud");
+  const menu = document.getElementById("menu");
+  const over = document.getElementById("over");
+  const muteBtn = document.getElementById("mute");
+
+  // ---------- storage (best score, sound pref) ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+  let best = store.get("neondrift.best", 0);
+  let soundOn = store.get("neondrift.sound", true);
+
+  // ---------- sizing ----------
+  let W = 0, H = 0, dpr = 1;
+  function resize() {
+    const r = arena.getBoundingClientRect();
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    W = r.width; H = r.height;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (const s of stars) { s.x = Math.random() * W; s.y = Math.random() * H; }
+    if (state !== "playing") { player.x = targetX = W / 2; }
+    player.y = H * 0.8;
+  }
+
+  // ---------- audio ----------
+  let actx = null;
+  function audio() {
+    if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; } }
+    if (actx.state === "suspended") actx.resume();
+    return actx;
+  }
+  function beep(freq, dur, type = "sine", vol = 0.12, slide = 0) {
+    if (!soundOn) return;
+    const a = audio(); if (!a) return;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, a.currentTime);
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), a.currentTime + dur);
+    g.gain.setValueAtTime(vol, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
+    o.connect(g).connect(a.destination);
+    o.start(); o.stop(a.currentTime + dur);
+  }
+  const sfx = {
+    orb() { beep(880, 0.12, "triangle", 0.12, 600); },
+    crash() { beep(220, 0.5, "sawtooth", 0.15, -180); beep(90, 0.6, "square", 0.08, -50); },
+    start() { beep(440, 0.1, "triangle", 0.1, 440); },
+  };
+  function paintMute() { muteBtn.textContent = soundOn ? "SFX" : "OFF"; muteBtn.style.opacity = soundOn ? 1 : 0.5; }
+  muteBtn.addEventListener("click", () => { soundOn = !soundOn; store.set("neondrift.sound", soundOn); paintMute(); if (soundOn) audio(); });
+  paintMute();
+
+  // ---------- world ----------
+  const PR = 16; // player radius
+  const player = { x: 0, y: 0, visible: true };
+  let targetX = 0;
+  const stars = Array.from({ length: 90 }, () => {
+    const r = 0.6 + Math.random() * 1.2;
+    return { x: 0, y: 0, r, speed: r * 60, a: 0.3 + Math.random() * 0.6 };
+  });
+  let entities = [], particles = [], trail = [], floaters = [];
+  let state = "menu";
+  let elapsed = 0, spawnT = 0, orbT = 0, trailT = 0, distance = 0, orbs = 0, score = 0;
+  let shake = 0;
+
+  const fallSpeed = () => Math.min(300 + elapsed * 11, 900);
+  const rand = (a, b) => a + Math.random() * (b - a);
+
+  function shardShape(r) {
+    const n = 3 + Math.floor(Math.random() * 3), pts = [];
+    for (let i = 0; i < n; i++) {
+      const ang = (i / n) * Math.PI * 2 + rand(-0.25, 0.25), len = r * rand(0.8, 1.1);
+      pts.push([Math.cos(ang) * len, Math.sin(ang) * len]);
+    }
+    return pts;
+  }
+  function spawnShard() {
+    const big = Math.random() < Math.min(0.08 + elapsed * 0.004, 0.3);
+    const r = big ? rand(34, 48) : rand(14, 28);
+    entities.push({ kind: "shard", x: rand(r, W - r), y: -r - 10, r, hit: r * 0.78,
+      speed: fallSpeed() * rand(0.85, 1.25), rot: rand(0, 6.28), spin: rand(-3, 3), pts: shardShape(r) });
+  }
+  function spawnOrb() {
+    entities.push({ kind: "orb", x: rand(30, W - 30), y: -20, r: 10, hit: 16, speed: fallSpeed() * 0.9, t: 0 });
+  }
+  function burst(x, y, color, n, dist) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2), d = rand(dist * 0.4, dist), life = rand(0.35, 0.7);
+      particles.push({ x, y, vx: Math.cos(a) * d / life, vy: Math.sin(a) * d / life, r: rand(2, 4.5), life, max: life, color });
+    }
+  }
+
+  // ---------- flow ----------
+  function setScore(v) { if (v !== score) { score = v; hud.textContent = v; } }
+  function showBest(el, isNew) {
+    el.hidden = best <= 0 && !isNew;
+    el.className = isNew ? "best new-best" : "best";
+    el.textContent = isNew ? "NEW BEST!" : "BEST  " + best;
+  }
+  function start() {
+    audio(); sfx.start();
+    entities = []; particles = []; trail = []; floaters = [];
+    elapsed = 0; spawnT = 0.6; orbT = 1.5; distance = 0; orbs = 0; score = -1; setScore(0);
+    player.x = targetX = W / 2; player.visible = true;
+    state = "playing";
+    menu.hidden = true; over.hidden = true; hud.hidden = false;
+  }
+  function crash() {
+    state = "dead";
+    dragging = false;
+    sfx.crash();
+    if (navigator.vibrate) navigator.vibrate(80);
+    burst(player.x, player.y, PINK, 26, 140);
+    burst(player.x, player.y, CYAN, 18, 90);
+    player.visible = false;
+    shake = 0.3;
+    const isNew = score > best;
+    if (isNew) { best = score; store.set("neondrift.best", best); }
+    setTimeout(() => {
+      state = "over";
+      hud.hidden = true;
+      document.getElementById("finalScore").textContent = score;
+      showBest(document.getElementById("overBest"), isNew);
+      over.hidden = false;
+    }, 700);
+  }
+  document.getElementById("playBtn").addEventListener("click", start);
+  document.getElementById("againBtn").addEventListener("click", start);
+  showBest(document.getElementById("menuBest"), false);
+
+  // ---------- input: relative drag so your thumb never hides the ship ----------
+  let dragging = false, dragStartX = 0, playerStartX = 0;
+  canvas.addEventListener("pointerdown", (e) => {
+    if (state !== "playing") return;
+    dragging = true; dragStartX = e.clientX; playerStartX = targetX;
+    canvas.setPointerCapture?.(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!dragging || state !== "playing") return;
+    targetX = Math.min(Math.max(playerStartX + (e.clientX - dragStartX) * 1.4, PR + 6), W - PR - 6);
+  });
+  const endDrag = () => { dragging = false; };
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+  const keys = {};
+  addEventListener("keydown", (e) => {
+    keys[e.key] = true;
+    if ((e.key === " " || e.key === "Enter") && state !== "playing" && state !== "dead") { e.preventDefault(); start(); }
+  });
+  addEventListener("keyup", (e) => { keys[e.key] = false; });
+  document.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+
+  // ---------- loop ----------
+  let last = 0;
+  function frame(now) {
+    const dt = last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60;
+    last = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  function update(dt) {
+    const boost = state === "playing" ? fallSpeed() / 120 : 1;
+    for (const s of stars) {
+      s.y += s.speed * boost * dt;
+      if (s.y > H + 4) { s.y = -4; s.x = Math.random() * W; }
+    }
+    for (const p of particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.94; p.vy *= 0.94; p.life -= dt; }
+    particles = particles.filter((p) => p.life > 0);
+    for (const t of trail) { t.y += t.vy * dt; t.life -= dt; }
+    trail = trail.filter((t) => t.life > 0);
+    for (const f of floaters) { f.y -= 80 * dt; f.life -= dt; }
+    floaters = floaters.filter((f) => f.life > 0);
+    if (shake > 0) shake -= dt;
+
+    if (state !== "playing") {
+      for (const e of entities) { e.y += e.speed * 0.15 * dt; if (e.kind === "shard") e.rot += e.spin * 0.15 * dt; }
+      entities = entities.filter((e) => e.y < H + 80);
+      if (state === "menu" && entities.length < 8 && Math.random() < dt * 2) spawnShard();
+      return;
+    }
+    elapsed += dt;
+
+    if (keys.ArrowLeft || keys.a) targetX = Math.max(PR + 6, targetX - 520 * dt);
+    if (keys.ArrowRight || keys.d) targetX = Math.min(W - PR - 6, targetX + 520 * dt);
+    player.x += (targetX - player.x) * Math.min(1, dt * 20);
+
+    trailT -= dt;
+    if (trailT <= 0) { trailT = 1 / 45; trail.push({ x: player.x, y: player.y, vy: fallSpeed() * 0.6, life: 0.35 }); }
+
+    spawnT -= dt;
+    if (spawnT <= 0) {
+      spawnT = Math.max(0.16, 0.65 - elapsed * 0.012);
+      spawnShard();
+      if (elapsed > 25 && Math.random() < 0.5) spawnShard();
+    }
+    orbT -= dt;
+    if (orbT <= 0) { orbT = rand(1.4, 2.6); spawnOrb(); }
+
+    const keep = [];
+    for (const e of entities) {
+      e.y += e.speed * dt;
+      if (e.kind === "shard") e.rot += e.spin * dt; else e.t += dt;
+      if (Math.hypot(e.x - player.x, e.y - player.y) < e.hit + PR) {
+        if (e.kind === "orb") {
+          orbs++; sfx.orb();
+          burst(e.x, e.y, GOLD, 12, 60);
+          floaters.push({ x: e.x, y: e.y, life: 0.6 });
+          continue;
+        }
+        crash();
+        return;
+      }
+      if (e.y > H + 80) continue;
+      keep.push(e);
+    }
+    entities = keep;
+
+    distance += fallSpeed() * dt;
+    setScore(Math.floor(distance / 40) + orbs * 10);
+  }
+
+  function draw() {
+    ctx.fillStyle = "#08051a";
+    ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    if (shake > 0) { const m = 14 * (shake / 0.3); ctx.translate(rand(-m, m), rand(-m, m)); }
+
+    for (const s of stars) {
+      ctx.globalAlpha = s.a; ctx.fillStyle = "#fff";
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.283); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // trail
+    for (const t of trail) {
+      const k = t.life / 0.35;
+      ctx.globalAlpha = 0.45 * k; ctx.fillStyle = CYAN;
+      ctx.beginPath(); ctx.arc(t.x, t.y, 11 * (0.2 + 0.8 * k), 0, 6.283); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // entities
+    ctx.lineJoin = "round";
+    for (const e of entities) {
+      ctx.save();
+      ctx.translate(e.x, e.y);
+      if (e.kind === "shard") {
+        ctx.rotate(e.rot);
+        ctx.beginPath();
+        e.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        ctx.closePath();
+        ctx.strokeStyle = "rgba(255,51,153,0.25)"; ctx.lineWidth = 10; ctx.stroke();
+        ctx.fillStyle = "rgba(255,51,153,0.18)"; ctx.fill();
+        ctx.strokeStyle = PINK; ctx.lineWidth = 3; ctx.stroke();
+      } else {
+        const s = 1 + 0.1 * Math.sin(e.t * 9);
+        ctx.scale(s, s);
+        ctx.beginPath(); ctx.arc(0, 0, 14, 0, 6.283);
+        ctx.fillStyle = "rgba(255,217,77,0.3)"; ctx.fill();
+        ctx.beginPath(); ctx.arc(0, 0, 10, 0, 6.283);
+        ctx.fillStyle = GOLD; ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // player
+    if (player.visible && state !== "menu") {
+      const pulse = 1 + 0.08 * Math.sin(performance.now() / 190);
+      ctx.beginPath(); ctx.arc(player.x, player.y, 26 * pulse, 0, 6.283);
+      ctx.fillStyle = "rgba(51,242,255,0.15)"; ctx.fill();
+      ctx.strokeStyle = "rgba(51,242,255,0.35)"; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath(); ctx.arc(player.x, player.y, PR, 0, 6.283);
+      ctx.fillStyle = "#e6ffff"; ctx.fill();
+      ctx.strokeStyle = CYAN; ctx.lineWidth = 4; ctx.stroke();
+    }
+
+    for (const p of particles) {
+      const k = p.life / p.max;
+      ctx.globalAlpha = k; ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (0.3 + 0.7 * k), 0, 6.283); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.font = "700 22px 'Chakra Petch', system-ui, sans-serif";
+    ctx.textAlign = "center";
+    for (const f of floaters) {
+      ctx.globalAlpha = f.life / 0.6; ctx.fillStyle = GOLD;
+      ctx.fillText("+10", f.x, f.y);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  addEventListener("resize", resize);
+  new ResizeObserver(resize).observe(arena);
+  resize();
+  // A few drifting shards behind the menu so the first frame shows the game.
+  for (let i = 0; i < 7; i++) { spawnShard(); entities[i].y = rand(40, H * 0.75); }
+  spawnOrb(); entities[entities.length - 1].y = H * 0.45;
+  requestAnimationFrame(frame);
+})();
+</script>

@@ -4,7 +4,11 @@ A simple neon arcade dodger for iPhone (tuned for the iPhone 18 Pro Max — runs
 
 **How to play:** drag anywhere on the screen to steer your orb left and right. Dodge the pink shards, grab the gold orbs (+10). It gets faster the longer you survive. Your best score is saved.
 
-## Run it on your phone
+## Play it with just an iPhone
+
+`web/neon-drift.html` is a browser version of the same game — no Mac or App Store needed. Open it in Safari on your iPhone, then Share → *Add to Home Screen* for an app-like icon.
+
+## Build the native app (needs a Mac)
 
 1. Open `NeonDrift.xcodeproj` in Xcode 16 or newer (on a Mac).
 2. Select the **NeonDrift** target → *Signing & Capabilities* → pick your Team (a free Apple ID works). If Xcode complains about the bundle ID, change `com.example.NeonDrift` to something unique.
